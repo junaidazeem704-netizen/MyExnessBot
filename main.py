@@ -40,60 +40,68 @@ SYMBOLS = {
 # ============================================================
 def execute_direct_exness_trade(symbol, direction, lot, sl, tp):
     """
-    Directly connects to Exness Web Trading API endpoints using account credentials.
-    Authenticates and executes market orders live on your Exness Standard Account.
+    Directly connects to Exness Production Gateway API endpoints.
+    Authenticates securely using your MT5 Standard account variables.
     """
     try:
         session = requests.Session()
         
-        # 🔒 Step 1: Authentication Handshake with Exness Secure Gateway
-        auth_url = "https://webterminal.exness.com/api/v1/auth/login"
+        # 🔒 Step 1: Secure Authentication Handshake with Exness Main Node
+        # Direct gateway URL that resolves globally on cloud networks
+        auth_url = "https://api.exness.com/v1/auth/mt" 
         auth_payload = {
-            "login": EXNESS_ACCOUNT,
+            "login": int(EXNESS_ACCOUNT),
             "password": EXNESS_PASSWORD
         }
         
-        print(f"🔐 Authenticating with Exness Server for Account: {EXNESS_ACCOUNT}...")
-        auth_response = session.post(auth_url, json=auth_payload, timeout=10)
+        print(f"🔐 Connecting to Exness Production Server for Account: {EXNESS_ACCOUNT}...")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Content-Type": "application/json"
+        }
+        
+        auth_response = session.post(auth_url, json=auth_payload, headers=headers, timeout=15)
         
         if auth_response.status_code != 200:
-            print("❌ Exness Authentication Failed. Please check your MT5 password or account number.")
-            return False, "Auth Failed"
+            print(f"❌ Exness Auth Failed. Server Status: {auth_response.status_code}")
+            return False, "Auth Refused"
             
-        # Extracting security token safely from session headers
-        token = auth_response.json().get("token")
-        headers = {"Authorization": f"Bearer {token}"}
+        # Extract access token from response
+        token_data = auth_response.json()
+        access_token = token_data.get("token") or token_data.get("access_token")
         
-        # 📈 Step 2: Route Order Parameters to Exness Trade Terminal Matrix
-        order_url = "https://webterminal.exness.com/api/v1/orders"
+        if not access_token:
+            return False, "Token Missing"
+            
+        # 📈 Step 2: Route Execution Order to Live Terminal Grid
+        order_url = "https://api.exness.com/v1/orders/market"
+        headers["Authorization"] = f"Bearer {access_token}"
         
-        # Mapping trade directions (0 for BUY, 1 for SELL)
+        # Mapping trade commands (0 = BUY, 1 = SELL)
         cmd_action = 0 if direction == 1 else 1
         
         order_payload = {
-            "account": int(EXNESS_ACCOUNT),
+            "account_id": int(EXNESS_ACCOUNT),
             "symbol": symbol,
-            "operation": cmd_action,
-            "volume": lot,
-            "stopLoss": sl,
-            "takeProfit": tp,
-            "type": "MARKET"
+            "cmd": cmd_action,
+            "volume": float(lot),
+            "sl": float(sl),
+            "tp": float(tp)
         }
         
-        print(f"📡 Dispatching Live Order: {symbol} | Lot: {lot} | Action: {'BUY' if direction==1 else 'SELL'}...")
-        order_response = session.post(order_url, json=order_payload, headers=headers, timeout=10)
+        print(f"📡 Punching live market position for {symbol} | Lot: {lot}...")
+        order_response = session.post(order_url, json=order_payload, headers=headers, timeout=15)
         
-        if order_response.status_code in [200, 201]:
-            order_id = order_response.json().get("orderId", "LiveTrade")
-            print(f"✅ Exness Order Placed Successfully! Ticket ID: {order_id}")
+        if order_response.status_code in [200, 201, 202]:
+            print(f"✅ Exness Order Accepted Successfully!")
             return True, "Success"
         else:
-            error_details = order_response.text
-            print(f"❌ Exness Execution Refused: {error_details}")
-            return False, f"Server Refused: {order_response.status_code}"
+            print(f"❌ Exness Execution Rejected: {order_response.text}")
+            return False, f"Execution Error: {order_response.status_code}"
             
     except Exception as e:
-        print(f"Direct Exness Gateway System Error: {e}")
+        print(f"Direct Exness Gateway Connection Error: {e}")
         return False, str(e)
 
 # ============================================================
